@@ -625,6 +625,28 @@ def main():
         st.info("👈 Enter a URL in the sidebar to begin.")
         return
 
+    # Add a START button to prevent auto-execution
+    st.markdown("---")
+    col1, col2, col3 = st.columns([1, 1, 2])
+    with col1:
+        start_button = st.button("🚀 Start Scraping", type="primary", use_container_width=True)
+    with col2:
+        if st.button("🔄 Clear Cache", use_container_width=True):
+            st.cache_data.clear()
+            st.success("Cache cleared!")
+    
+    if not start_button:
+        st.info("👆 Click 'Start Scraping' when you're ready. Make sure to configure all settings first!")
+        st.markdown("**Current Configuration:**")
+        st.write(f"- **URL:** {url}")
+        st.write(f"- **Crawl Mode:** {crawl_mode}")
+        st.write(f"- **Page Load Delay:** {wait_time}s")
+        st.write(f"- **Force Dynamic:** {'Yes' if force_dynamic else 'No'}")
+        if crawl_mode == "Pagination":
+            st.write(f"- **Next Button:** `{automation_config.get('next_selector')}`")
+            st.write(f"- **Max Pages:** {automation_config.get('max_pages')}")
+        return
+
     # Trigger Fetch
     with st.status("🚀 Fetching & Analyzing...", expanded=True) as status:
         # Fetch returns a LIST of html strings now

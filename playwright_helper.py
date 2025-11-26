@@ -31,68 +31,83 @@ def fetch_with_playwright(url, automation_config):
         elif automation_type == "pagination":
             max_pages = automation_config.get("max_pages", 5)
             next_sel = automation_config.get("next_selector")
+            debug_log = []
             
-            print(f"[PAGINATION] Starting pagination with selector: {next_sel}, max_pages: {max_pages}")
+            debug_log.append(f"Starting pagination: {next_sel}, max_pages: {max_pages}")
             
             for i in range(max_pages):
-                print(f"[PAGINATION] Page {i+1}/{max_pages}")
+                debug_log.append(f"=== Page {i+1}/{max_pages} ===")
                 
                 # Capture current page content
                 current_html = page.content()
                 html_pages.append(current_html)
+                debug_log.append(f"Captured page {i+1}, HTML length: {len(current_html)}")
                 
-                # Check for next button
-                next_button = page.locator(next_sel)
-                button_count = next_button.count()
+                # Check if this is the last page
+                if i == max_pages - 1:
+                    debug_log.append(f"Reached max_pages limit")
+                    break
                 
-                print(f"[PAGINATION] Found {button_count} next buttons")
-                
-                if button_count > 0:
-                    is_visible = next_button.is_visible()
-                    is_enabled = next_button.is_enabled()
-                    print(f"[PAGINATION] Button visible: {is_visible}, enabled: {is_enabled}")
+                # Try to find and click next button using JavaScript
+                try:
+                    # Check if button exists
+                    button_count = page.locator(next_sel).count()
+                    debug_log.append(f"Found {button_count} buttons matching '{next_sel}'")
                     
-                    if is_visible and is_enabled:
-                        try:
-                            # Scroll button into view first
-                            next_button.scroll_into_view_if_needed()
-                            time.sleep(0.5)
-                            
-                            # Try force click (bypasses actionability checks)
-                            print(f"[PAGINATION] Clicking next button...")
-                            next_button.click(force=True)
-                            
-                            # Wait for content to change
-                            print(f"[PAGINATION] Waiting for content to change...")
-                            content_changed = False
-                            for wait_attempt in range(25):  # 25 seconds max
-                                time.sleep(1)
-                                new_html = page.content()
-                                if new_html != current_html:
-                                    print(f"[PAGINATION] Content changed after {wait_attempt+1}s")
-                                    content_changed = True
-                                    break
-                            
-                            if not content_changed:
-                                print(f"[PAGINATION] WARNING: Content did not change after clicking!")
-                                break
-                            
-                            # Additional wait for rendering
-                            print(f"[PAGINATION] Waiting {wait_time}s for rendering...")
-                            time.sleep(wait_time)
-                            print(f"[PAGINATION] Page {i+2} ready")
-                            
-                        except Exception as e:
-                            print(f"[PAGINATION] Error clicking next: {str(e)}")
-                            break
-                    else:
-                        print(f"[PAGINATION] Button not clickable, stopping")
+                    if button_count == 0:
+                        debug_log.append(f"No next button found, stopping")
                         break
-                else:
-                    print(f"[PAGINATION] No next button found, stopping")
+                    
+                    # Try JavaScript click (more reliable for Vue.js)
+                    js_click_script = f"""
+                    const button = document.querySelector('{next_sel}');
+                    if (button) {{
+                        button.click();
+                        true;
+                    }} else {{
+                        false;
+                    }}
+                    """
+                    
+                    clicked = page.evaluate(js_click_script)
+                    debug_log.append(f"JavaScript click result: {clicked}")
+                    
+                    if not clicked:
+                        debug_log.append(f"JavaScript click failed, trying Playwright click")
+                        # Fallback to Playwright click
+                        page.locator(next_sel).first.click(force=True)
+                        debug_log.append(f"Playwright click executed")
+                    
+                    # Wait for content to change
+                    debug_log.append(f"Waiting for content to change...")
+                    content_changed = False
+                    
+                    for wait_attempt in range(30):  # 30 seconds max
+                        time.sleep(1)
+                        new_html = page.content()
+                        if new_html != current_html:
+                            debug_log.append(f"✓ Content changed after {wait_attempt+1}s")
+                            content_changed = True
+                            break
+                    
+                    if not content_changed:
+                        debug_log.append(f"✗ WARNING: Content did NOT change after 30s!")
+                        debug_log.append(f"This usually means the click didn't work or there are no more pages")
+                        break
+                    
+                    # Additional wait for Vue.js rendering
+                    debug_log.append(f"Waiting {wait_time}s for rendering...")
+                    time.sleep(wait_time)
+                    debug_log.append(f"✓ Page {i+2} ready")
+                    
+                except Exception as e:
+                    debug_log.append(f"✗ Error: {str(e)}")
                     break
             
-            print(f"[PAGINATION] Completed. Total pages: {len(html_pages)}")                
+            debug_log.append(f"=== Pagination complete: {len(html_pages)} pages scraped ===")
+            
+            # Return debug log in the result
+            return {"success": True, "html_pages": html_pages, "debug_log": debug_log}                
         elif automation_type == "list_detail":
             html_pages.append(page.content())
             detail_sel = automation_config.get("detail_selector")

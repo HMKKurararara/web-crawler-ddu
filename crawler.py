@@ -79,6 +79,13 @@ def fetch_dynamic_content(url: str, automation: dict = None) -> list[str]:
         if not output.get("success"):
             raise Exception(output.get("error", "Unknown error"))
         
+        # Display debug log if present (for pagination debugging)
+        if "debug_log" in output and output["debug_log"]:
+            import streamlit as st
+            with st.expander("📋 Pagination Debug Log", expanded=False):
+                for log_line in output["debug_log"]:
+                    st.text(log_line)
+        
         return output.get("html_pages", [])
         
     except subprocess.TimeoutExpired:

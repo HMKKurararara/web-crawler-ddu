@@ -46,30 +46,25 @@ def clean_text(text: str) -> str:
 
 # ========== PLAYWRIGHT FETCH ENGINE ==========
 
-@st.cache_resource(show_spinner=False)
-def get_playwright_browser():
-    """
-    Initializes and caches the Playwright browser.
-    We return a tuple (playwright_instance, browser_instance) to keep references alive.
-    """
-    # Ensure browsers are installed (hack for some cloud envs)
-    import subprocess
-    try:
-        subprocess.run(["playwright", "install", "chromium"], check=True)
-    except:
-        pass
-
-    p = sync_playwright().start()
-    browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-    return p, browser
-
 def fetch_dynamic_content(url: str, automation: dict = None) -> list[str]:
     """
-    Fetches content using a cached Playwright browser.
+    Fetches content using Playwright browser.
     Supports automation: 'pagination' or 'list_detail'.
     Returns a LIST of HTML strings.
+    
+    Note: We create a fresh browser for each request to avoid threading issues with Streamlit.
     """
-    _, browser = get_playwright_browser()
+    # Create fresh playwright instance (not cached)
+    p = sync_playwright().start()
+    
+    # Ensure browsers are installed
+    import subprocess
+    try:
+        subprocess.run(["playwright", "install", "chromium"], check=True, capture_output=True)
+    except:
+        pass
+    
+    browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
     context = browser.new_context(user_agent=random.choice(USER_AGENTS))
     page = context.new_page()
     html_pages = []
@@ -140,6 +135,8 @@ def fetch_dynamic_content(url: str, automation: dict = None) -> list[str]:
         raise e
     finally:
         context.close()
+        browser.close()
+        p.stop()  # Clean up the playwright instance
 
 # ========== FETCH ENGINE (CACHED) ==========
 

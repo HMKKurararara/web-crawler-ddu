@@ -12,12 +12,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import streamlit as st
 from bs4 import BeautifulSoup
-# New Imports for Playwright/Dynamic Scraping
-from playwright.sync_api import sync_playwright
 from lxml import html as lxml_html # For XPath support
-import nest_asyncio
-
-nest_asyncio.apply()
 
 # ========== CONFIG & UTILS ==========
 
@@ -48,95 +43,49 @@ def clean_text(text: str) -> str:
 
 def fetch_dynamic_content(url: str, automation: dict = None) -> list[str]:
     """
-    Fetches content using Playwright browser.
-    Supports automation: 'pagination' or 'list_detail'.
+    Fetches content using Playwright via subprocess.
+    This avoids threading conflicts with Streamlit.
     Returns a LIST of HTML strings.
-    
-    Note: We create a fresh browser for each request to avoid threading issues with Streamlit.
     """
-    # Create fresh playwright instance (not cached)
-    p = sync_playwright().start()
-    
-    # Ensure browsers are installed
     import subprocess
-    try:
-        subprocess.run(["playwright", "install", "chromium"], check=True, capture_output=True)
-    except:
-        pass
+    import os
     
-    browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-    context = browser.new_context(user_agent=random.choice(USER_AGENTS))
-    page = context.new_page()
-    html_pages = []
+    # Get path to helper script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    helper_path = os.path.join(script_dir, "playwright_helper.py")
+    
+    # Prepare automation config
+    if automation is None:
+        automation = {"type": "single", "wait_time": 3}
+    
+    automation_json = json.dumps(automation)
     
     try:
-        page.goto(url, wait_until="domcontentloaded", timeout=30000)
-        try:
-            page.wait_for_selector("body", state="visible", timeout=10000)
-        except: pass
+        # Run Playwright in subprocess
+        result = subprocess.run(
+            ["python3", helper_path, url, automation_json],
+            capture_output=True,
+            text=True,
+            timeout=120  # 2 minute timeout
+        )
         
-        # --- AUTOMATION LOGIC ---
-        wait_time = automation.get("wait_time", 2) if automation else 2
+        if result.returncode != 0:
+            raise Exception(f"Subprocess failed: {result.stderr}")
         
-        if not automation or automation.get("type") == "single":
-            time.sleep(wait_time)
-            html_pages.append(page.content())
-            
-        elif automation.get("type") == "pagination":
-            max_pages = automation.get("max_pages", 5)
-            next_sel = automation.get("next_selector")
-            
-            for i in range(max_pages):
-                html_pages.append(page.content())
-                
-                # Check for next button
-                if page.locator(next_sel).count() > 0 and page.locator(next_sel).is_visible():
-                    try:
-                        with page.expect_navigation(timeout=5000):
-                            page.click(next_sel)
-                        time.sleep(wait_time) # Wait for load
-                    except:
-                        break # Navigation failed or timeout
-                else:
-                    break # No more next button
-                    
-        elif automation.get("type") == "list_detail":
-            # 1. Scrape Main List
-            html_pages.append(page.content()) # Keep list page too? Maybe not needed but good for debug
-            
-            # 2. Find Detail Links
-            detail_sel = automation.get("detail_selector")
-            max_items = automation.get("max_items", 5)
-            
-            # Get all hrefs first to avoid stale elements
-            links = page.locator(detail_sel).all()
-            urls_to_visit = []
-            for link in links[:max_items]:
-                url = link.get_attribute("href")
-                if url:
-                    urls_to_visit.append(url)
-            
-            # 3. Visit each
-            for item_url in urls_to_visit:
-                try:
-                    # Handle relative URLs
-                    if not item_url.startswith(("http", "https")):
-                        item_url = urljoin(page.url, item_url)
-                        
-                    page.goto(item_url, wait_until="domcontentloaded", timeout=15000)
-                    time.sleep(wait_time)
-                    html_pages.append(page.content())
-                except:
-                    continue
-
-        return html_pages
+        # Parse JSON output
+        output = json.loads(result.stdout)
         
+        if not output.get("success"):
+            raise Exception(output.get("error", "Unknown error"))
+        
+        return output.get("html_pages", [])
+        
+    except subprocess.TimeoutExpired:
+        raise Exception("Playwright fetch timed out after 2 minutes")
+    except json.JSONDecodeError as e:
+        raise Exception(f"Failed to parse Playwright output: {str(e)}")
     except Exception as e:
         raise e
-    finally:
-        context.close()
-        browser.close()
-        p.stop()  # Clean up the playwright instance
 
 # ========== FETCH ENGINE (CACHED) ==========
 

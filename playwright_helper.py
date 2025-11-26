@@ -30,140 +30,108 @@ def fetch_with_playwright(url, automation_config):
             
         elif automation_type == "pagination":
             max_pages = automation_config.get("max_pages", 5)
-            next_sel = automation_config.get("next_selector")
             debug_log = []
             
-            debug_log.append(f"Starting pagination: {next_sel}, max_pages: {max_pages}")
+            debug_log.append(f"Starting NUMBERED BUTTON pagination, max_pages: {max_pages}")
             
             # Wait for pagination controls to load first!
             debug_log.append(f"Waiting for pagination controls to appear...")
             try:
-                page.wait_for_selector(next_sel, state="visible", timeout=20000)
+                page.wait_for_selector(".v-pagination__item", state="visible", timeout=20000)
                 debug_log.append(f"✓ Pagination controls loaded")
             except:
                 debug_log.append(f"✗ Pagination controls did not appear within 20s")
                 html_pages.append(page.content())
                 return {"success": True, "html_pages": html_pages, "debug_log": debug_log}
             
-            for i in range(max_pages):
-                debug_log.append(f"=== Page {i+1}/{max_pages} ===")
+            for page_num in range(1, max_pages + 1):
+                debug_log.append(f"=== Page {page_num}/{max_pages} ===")
                 
                 # Capture current page
                 current_url = page.url
                 current_html = page.content()
                 html_pages.append(current_html)
-                debug_log.append(f"Captured page {i+1}, HTML length: {len(current_html)}")
-                debug_log.append(f"Current URL: {current_url}")
+                debug_log.append(f"Captured page {page_num}, HTML length: {len(current_html)}")
                 
-                # Get current data for comparison
+                # Get current cards
                 try:
                     current_cards = page.locator('.card.entity').all_inner_texts()
                     debug_log.append(f"Found {len(current_cards)} data cards")
                     if len(current_cards) > 0:
-                        debug_log.append(f"First card: {current_cards[0][:60]}...")
+                        debug_log.append(f"First card: {current_cards[0][:50]}...")
+                    first_card_text = current_cards[0] if len(current_cards) > 0 else ""
                 except:
                     current_cards = []
+                    first_card_text = ""
                 
-                # Check if last page
-                if i == max_pages - 1:
+                # Check if this is the last page
+                if page_num == max_pages:
                     debug_log.append(f"Reached max_pages limit")
                     break
                 
-                # Check if button exists and is enabled
+                # Click the NEXT numbered page button (page_num + 1)
+                next_page_num = page_num + 1
+                debug_log.append(f"Looking for page {next_page_num} button...")
+                
                 try:
-                    button_count = page.locator(next_sel).count()
-                    if button_count == 0:
-                        debug_log.append(f"No next button found, stopping")
-                        break
+                    # Find button by text content  
+                    button_selector = f"button.v-pagination__item:has-text('{next_page_num}')"
+                    button = page.locator(button_selector)
                     
-                    is_disabled = page.locator(next_sel).first.get_attribute("disabled")
-                    if is_disabled:
-                        debug_log.append(f"Next button disabled, last page reached")
-                        break
-                    
-                    # Get reference to first card element
-                    first_card_text = current_cards[0] if len(current_cards) > 0 else ""
-                    debug_log.append(f"Attempting to click Next button...")
-                    
-                    # Try multiple click strategies
-                    next_button = page.locator(next_sel).first
-                    
-                    # Strategy 1: Scroll into view
-                    try:
-                        next_button.scroll_into_view_if_needed()
-                        debug_log.append(f"✓ Scrolled button into view")
-                        time.sleep(0.5)
-                    except:
-                        pass
-                    
-                    # Strategy 2: Try normal click first
-                    try:
-                        next_button.click(timeout=5000)
-                        debug_log.append(f"✓ Normal click succeeded")
-                    except:
-                        # Strategy 3: Force click
-                        try:
-                            next_button.click(force=True, timeout=5000)
-                            debug_log.append(f"✓ Force click succeeded")
-                        except:
-                            # Strategy 4: JavaScript click
-                            page.evaluate(f"document.querySelector('{next_sel}').click()")
-                            debug_log.append(f"✓ JavaScript click executed")
-                    
-                    # Check for loading indicator
-                    debug_log.append(f"Checking for loading indicators...")
-                    time.sleep(1)
+                    if button.count() > 0:
+                        debug_log.append(f"✓ Found page {next_page_num} button")
+                        button.first.click(timeout=5000)
+                        debug_log.append(f"✓ Clicked page {next_page_num}")
+                        page_button_clicked = True
+                    else:
+                        # Fallback: JavaScript
+                        debug_log.append(f"Trying JavaScript...")
+                        js_script = f"""
+                        const buttons = document.querySelectorAll('.v-pagination__item');
+                        for (let btn of buttons) {{
+                            if (btn.textContent.trim() === '{next_page_num}') {{
+                                btn.click();
+                                return true;
+                            }}
+                        }}
+                        return false;
+                        """
+                        clicked = page.evaluate(js_script)
+                        if clicked:
+                            debug_log.append(f"✓ JS clicked page {next_page_num}")
+                            page_button_clicked = True
+                        else:
+                            debug_log.append(f"✗ Could not find page {next_page_num}")
+                            break
                     
                     # Wait for cards to update
                     debug_log.append(f"Waiting for cards to update...")
                     cards_updated = False
                     
-                    for attempt in range(35):  # 35 second timeout
+                    for attempt in range(30):
                         time.sleep(1)
                         try:
-                            # Check if cards changed
                             new_cards = page.locator('.card.entity').all_inner_texts()
                             
-                            if len(new_cards) > 0:
-                                # Check if ANY card is different
-                                if new_cards[0] != first_card_text:
-                                    debug_log.append(f"✓ First card changed after {attempt+1}s!")
-                                    debug_log.append(f"Was: {first_card_text[:40]}...")
-                                    debug_log.append(f"Now: {new_cards[0][:40]}...")
-                                    cards_updated = True
-                                    break
-                                # Also check if the entire list is different
-                                elif new_cards != current_cards:
-                                    debug_log.append(f"✓ Card list changed after {attempt+1}s (different order/content)")
-                                    cards_updated = True
-                                    break
-                        except Exception as e:
-                            debug_log.append(f"Error checking cards at {attempt}s: {str(e)}")
-                    
-                    if not cards_updated:
-                        debug_log.append(f"✗ Cards did NOT update after 35s")
-                        debug_log.append(f"First card still shows: {first_card_text[:40] if first_card_text else 'N/A'}...")
-                        
-                        # One last check - maybe it's a timing issue
-                        try:
-                            final_cards = page.locator('.card.entity').all_inner_texts()
-                            debug_log.append(f"Final check: {len(final_cards)} cards found")
-                            if len(final_cards) > 0:
-                                debug_log.append(f"Final first card: {final_cards[0][:40]}...")
+                            if len(new_cards) > 0 and new_cards[0] != first_card_text:
+                                debug_log.append(f"✓ Cards updated after {attempt+1}s!")
+                                debug_log.append(f"Was: {first_card_text[:35]}...")
+                                debug_log.append(f"Now: {new_cards[0][:35]}...")
+                                cards_updated = True
+                                break
                         except:
                             pass
-                        
-                        debug_log.append(f"Stopping pagination - likely last page or Vue.js click handler not working")
+                    
+                    if not cards_updated:
+                        debug_log.append(f"✗ Cards did not update")
                         break
                     
-                    # Wait for full rendering
+                    # Wait for rendering
                     time.sleep(wait_time)
-                    debug_log.append(f"✓ Page {i+2} ready")
+                    debug_log.append(f"✓ Page {next_page_num} ready")
                     
                 except Exception as e:
                     debug_log.append(f"✗ Error: {str(e)}")
-                    import traceback
-                    debug_log.append(f"Traceback: {traceback.format_exc()}")
                     break
             
             debug_log.append(f"=== Pagination complete: {len(html_pages)} pages scraped ===")

@@ -81,27 +81,46 @@ def fetch_with_playwright(url, automation_config):
                 page.on("request", on_request)
                 
                 try:
-                    # Find button by text content  
-                    button_selector = f"button.v-pagination__item:has-text('{next_page_num}')"
-                    button = page.locator(button_selector)
+                    # Find button using a more robust approach
+                    # 1. Get all pagination items
+                    pagination_items = page.locator('.v-pagination__item').all()
+                    target_button = None
                     
-                    if button.count() > 0:
-                        debug_log.append(f"✓ Found page {next_page_num} button")
+                    debug_log.append(f"Found {len(pagination_items)} pagination items, looking for '{next_page_num}'")
+                    
+                    for item in pagination_items:
+                        text = item.inner_text().strip()
+                        if text == str(next_page_num):
+                            # Check if this is a button or contains a button
+                            if item.get_attribute("type") == "button" or item.get_attribute("role") == "button":
+                                target_button = item
+                                break
+                            # If it's an li, look for button inside
+                            btn = item.locator("button")
+                            if btn.count() > 0:
+                                target_button = btn.first
+                                break
+                            # Fallback: just click the item itself
+                            target_button = item
+                            break
+                    
+                    if target_button:
+                        debug_log.append(f"✓ Found target button for page {next_page_num}")
                         
                         # STRATEGY: Real Mouse Click (bypasses Vue.js trusted event checks)
                         try:
                             # 1. Scroll into view
-                            button.first.scroll_into_view_if_needed()
+                            target_button.scroll_into_view_if_needed()
                             time.sleep(0.5)
                             
                             # 2. Get coordinates
-                            box = button.first.bounding_box()
+                            box = target_button.bounding_box()
                             if box:
                                 x = box["x"] + box["width"] / 2
                                 y = box["y"] + box["height"] / 2
                                 
                                 # 3. Move mouse and click
-                                debug_log.append(f"Moving mouse to {x},{y} and clicking...")
+                                debug_log.append(f"Moving mouse to {int(x)},{int(y)} and clicking...")
                                 page.mouse.move(x, y)
                                 time.sleep(0.2)
                                 page.mouse.down()
@@ -111,11 +130,13 @@ def fetch_with_playwright(url, automation_config):
                                 page_button_clicked = True
                             else:
                                 debug_log.append(f"✗ Could not get bounding box, trying force click")
-                                button.first.click(force=True)
+                                target_button.click(force=True)
+                                page_button_clicked = True
                         except Exception as e:
                             debug_log.append(f"Mouse click failed: {str(e)}")
                             # Fallback
-                            button.first.click(force=True)
+                            target_button.click(force=True)
+                            page_button_clicked = True
                     else:
                         # Fallback: JavaScript with bubbles (more robust than standard click)
                         debug_log.append(f"Trying JavaScript Event Dispatch...")

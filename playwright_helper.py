@@ -277,7 +277,7 @@ def run_playwright_automation(url, use_proxy=None, automation_config=None):
     finally:
         context.close()
         browser.close()
-        p.stop()
+        playwright.stop()
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:

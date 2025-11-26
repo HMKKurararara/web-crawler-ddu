@@ -81,44 +81,42 @@ def fetch_with_playwright(url, automation_config):
                         debug_log.append(f"Next button disabled, last page reached")
                         break
                     
-                    # THE KEY FIX: Wait for network response
-                    debug_log.append(f"Clicking next and waiting for network response...")
+                    # Get reference to first card element (to detect when it's removed)
+                    first_card_text = current_cards[0] if len(current_cards) > 0 else ""
+                    debug_log.append(f"Clicking Next button...")
                     
-                    # Set up response listener BEFORE clicking
-                    with page.expect_response(lambda response: response.status == 200 and ("/api/" in response.url or "/directory/" in response.url), timeout=30000) as response_info:
-                        # Click the button
-                        page.click(next_sel, force=True)
-                        debug_log.append(f"✓ Clicked next button")
+                    # Click and wait for the first card to be removed from DOM
+                    page.click(next_sel, force=True)
+                    debug_log.append(f"✓ Clicked")
                     
-                    # Response received
-                    response = response_info.value
-                    debug_log.append(f"✓ Got response from: {response.url}")
+                    # Wait for Vue.js to remove old cards and add new ones
+                    debug_log.append(f"Waiting for cards to update...")
+                    cards_updated = False
                     
-                    # Wait for Vue to process the response and re-render
-                    debug_log.append(f"Waiting for Vue.js to re-render...")
-                    time.sleep(3)  # Give Vue time to process
-                    
-                    # Verify data actually changed
-                    try:
-                        new_cards = page.locator('.card.entity').all_inner_texts()
-                        if new_cards != current_cards and len(new_cards) > 0:
-                            debug_log.append(f"✓ Data changed! Now have {len(new_cards)} cards")
-                            if len(new_cards) > 0:
+                    for attempt in range(30):  # 30 second timeout
+                        time.sleep(1)
+                        try:
+                            # Check if cards changed by comparing text content
+                            new_cards = page.locator('.card.entity').all_inner_texts()
+                            if len(new_cards) > 0 and new_cards[0] != first_card_text:
+                                debug_log.append(f"✓ Cards updated after {attempt+1}s!")
                                 debug_log.append(f"New first card: {new_cards[0][:60]}...")
-                        else:
-                            debug_log.append(f"⚠ Warning: Response received but data looks same")
-                            debug_log.append(f"This might be a duplicate or cache issue")
-                    except Exception as e:
-                        debug_log.append(f"Could not verify data change: {str(e)}")
+                                cards_updated = True
+                                break
+                        except:
+                            pass
                     
-                    # Additional wait for full rendering
+                    if not cards_updated:
+                        debug_log.append(f"✗ Cards did not update after 30s")
+                        debug_log.append(f"Likely reached last page or click failed")
+                        break
+                    
+                    # Wait for full rendering
                     time.sleep(wait_time)
                     debug_log.append(f"✓ Page {i+2} ready")
                     
                 except Exception as e:
-                    debug_log.append(f"✗ Error during navigation: {str(e)}")
-                    debug_log.append(f"This usually means no network response was received")
-                    debug_log.append(f"Possible reasons: no more pages, or response timeout")
+                    debug_log.append(f"✗ Error: {str(e)}")
                     break
             
             debug_log.append(f"=== Pagination complete: {len(html_pages)} pages scraped ===")

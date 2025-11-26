@@ -667,7 +667,7 @@ def main():
     # --- Tabs View ---
     tabs = st.tabs([
         "📊 Overview", "📞 Contacts", "🔗 Links", "🏢 Companies", 
-        "🖼️ Media", "📋 Tables", "🧩 Custom"
+        "🖼️ Media", "📋 Tables", "🧩 Custom", "🔍 Debug"
     ])
 
     data_exports = {} # Store DFs for Excel export
@@ -795,6 +795,43 @@ def main():
         else:
             st.info("Enter both the Parent Container Selector and the Relative Data Mapping in the sidebar to extract structured data.")
 
+    with tabs[7]: # Debug
+        st.markdown("### 🔍 Debug Information")
+        st.markdown("Use this tab to find the correct selectors if extraction is failing.")
+        
+        page_to_view = st.selectbox("Select Page", [f"Page {i+1}" for i in range(len(htmls))], key="debug_page_select")
+        page_idx = int(page_to_view.split()[1]) - 1
+        
+        st.markdown("#### HTML Preview (First 5000 characters)")
+        st.code(htmls[page_idx][:5000], language="html")
+        
+        st.markdown("#### Common Classes Found")
+        # Extract all class names from the HTML
+        from bs4 import BeautifulSoup
+        from collections import Counter
+        soup = BeautifulSoup(htmls[page_idx], "html.parser")
+        all_classes = []
+        for tag in soup.find_all(class_=True):
+            all_classes.extend(tag.get("class", []))
+        
+        class_counts = Counter(all_classes).most_common(20)
+        if class_counts:
+            st.write("Top 20 most common classes:")
+            for cls, count in class_counts:
+                st.write(f"- `.{cls}` (appears {count} times)")
+        else:
+            st.write("No classes found in HTML")
+        
+        st.markdown("#### Search for Selector")
+        search_term = st.text_input("Search for class/id", placeholder="e.g., card, entity, item")
+        if search_term:
+            matching = [cls for cls in set(all_classes) if search_term.lower() in cls.lower()]
+            if matching:
+                st.success(f"Found {len(matching)} matching classes:")
+                for cls in matching[:20]:
+                    st.write(f"- `.{cls}`")
+            else:
+                st.warning(f"No classes found containing '{search_term}'")
 
     # --- Global Export ---
     st.divider()

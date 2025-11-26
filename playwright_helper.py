@@ -51,8 +51,19 @@ def fetch_with_playwright(url, automation_config):
                 debug_log.append(f"=== Page {i+1}/{max_pages} ===")
                 
                 # Capture current page content and URL
-                current_html = page.content()
                 current_url = page.url
+                
+                # Get current data cards to compare (more reliable than full HTML)
+                try:
+                    current_cards = page.locator('.card.entity').all_inner_texts()
+                    debug_log.append(f"Found {len(current_cards)} data cards on page {i+1}")
+                    if len(current_cards) > 0:
+                        debug_log.append(f"First card text preview: {current_cards[0][:50]}...")
+                except:
+                    current_cards = []
+                
+                # Capture full HTML
+                current_html = page.content()
                 html_pages.append(current_html)
                 debug_log.append(f"Captured page {i+1}, HTML length: {len(current_html)}")
                 debug_log.append(f"Current URL: {current_url}")
@@ -61,13 +72,6 @@ def fetch_with_playwright(url, automation_config):
                 if i == max_pages - 1:
                     debug_log.append(f"Reached max_pages limit")
                     break
-                
-                # Detect URL pattern after first page
-                url_pattern_detected = False
-                if i == 1 and "page=" in page.url:
-                    # URL changed and has page parameter - we can use direct navigation!
-                    debug_log.append(f"✓ URL pattern detected! Using direct navigation for remaining pages")
-                    url_pattern_detected = True
                 
                 # Try to find and click next button using JavaScript
                 try:
@@ -85,21 +89,7 @@ def fetch_with_playwright(url, automation_config):
                         debug_log.append(f"Next button is disabled, we've reached the last page")
                         break
                     
-                    # If URL pattern detected, try direct navigation
-                    if url_pattern_detected:
-                        # Extract page number and increment
-                        import re
-                        match = re.search(r'page=(\d+)', current_url)
-                        if match:
-                            next_page_num = int(match.group(1)) + 1
-                            next_url = re.sub(r'page=\d+', f'page={next_page_num}', current_url)
-                            debug_log.append(f"Navigating directly to: {next_url}")
-                            page.goto(next_url, wait_until="domcontentloaded")
-                            time.sleep(wait_time)
-                            debug_log.append(f"✓ Page {i+2} loaded via URL")
-                            continue
-                    
-                    # Otherwise, use JavaScript click
+                    # Use JavaScript click
                     js_click_script = f"""
                     const button = document.querySelector('{next_sel}');
                     if (button && !button.disabled) {{
@@ -114,33 +104,45 @@ def fetch_with_playwright(url, automation_config):
                     debug_log.append(f"JavaScript click result: {clicked}")
                     
                     if not clicked:
-                        debug_log.append(f"JavaScript click failed, trying Playwright click")
-                        # Fallback to Playwright click
-                        page.locator(next_sel).first.click(force=True)
-                        debug_log.append(f"Playwright click executed")
-                    
-                    # Wait for content to change
-                    debug_log.append(f"Waiting for content to change...")
-                    content_changed = False
-                    
-                    for wait_attempt in range(30):  # 30 seconds max
-                        time.sleep(1)
-                        new_html = page.content()
-                        new_url = page.url
-                        if new_html != current_html or new_url != current_url:
-                            debug_log.append(f"✓ Content changed after {wait_attempt+1}s")
-                            if new_url != current_url:
-                                debug_log.append(f"URL changed to: {new_url}")
-                            content_changed = True
-                            break
-                    
-                    if not content_changed:
-                        debug_log.append(f"✗ WARNING: Content did NOT change after 30s!")
-                        debug_log.append(f"This usually means the click didn't work or there are no more pages")
+                        debug_log.append(f"Click failed, stopping")
                         break
                     
-                    # Additional wait for Vue.js rendering
-                    debug_log.append(f"Waiting {wait_time}s for rendering...")
+                    # Wait for DATA to change (not just HTML)
+                    debug_log.append(f"Waiting for data cards to change...")
+                    data_changed = False
+                    
+                    for wait_attempt in range(40):  # 40 seconds max
+                        time.sleep(1)
+                        try:
+                            new_cards = page.locator('.card.entity').all_inner_texts()
+                            # Compare the actual card data
+                            if new_cards != current_cards and len(new_cards) > 0:
+                                debug_log.append(f"✓ Data cards changed after {wait_attempt+1}s (was {len(current_cards)}, now {len(new_cards)} cards)")
+                                if len(new_cards) > 0:
+                                    debug_log.append(f"New first card preview: {new_cards[0][:50]}...")
+                                data_changed = True
+                                break
+                        except:
+                            pass  # Keep waiting
+                    
+                    if not data_changed:
+                        debug_log.append(f"✗ WARNING: Data did NOT change after 40s!")
+                        debug_log.append(f"Retrying with longer wait...")
+                        time.sleep(10)  # Extra 10s wait
+                        try:
+                            final_cards = page.locator('.card.entity').all_inner_texts()
+                            if final_cards != current_cards:
+                                debug_log.append(f"✓ Data changed after extended wait")
+                                data_changed = True
+                        except:
+                            pass
+                        
+                        if not data_changed:
+                            debug_log.append(f"Click likely failed or no more pages. Stopping.")
+                            break
+                    
+                    # Additional wait for full rendering
+                    debug_log.append(f"Waiting {wait_time}s for full rendering...")
                     time.sleep(wait_time)
                     debug_log.append(f"✓ Page {i+2} ready")
                     

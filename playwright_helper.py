@@ -50,15 +50,24 @@ def fetch_with_playwright(url, automation_config):
             for i in range(max_pages):
                 debug_log.append(f"=== Page {i+1}/{max_pages} ===")
                 
-                # Capture current page content
+                # Capture current page content and URL
                 current_html = page.content()
+                current_url = page.url
                 html_pages.append(current_html)
                 debug_log.append(f"Captured page {i+1}, HTML length: {len(current_html)}")
+                debug_log.append(f"Current URL: {current_url}")
                 
                 # Check if this is the last page
                 if i == max_pages - 1:
                     debug_log.append(f"Reached max_pages limit")
                     break
+                
+                # Detect URL pattern after first page
+                url_pattern_detected = False
+                if i == 1 and "page=" in page.url:
+                    # URL changed and has page parameter - we can use direct navigation!
+                    debug_log.append(f"✓ URL pattern detected! Using direct navigation for remaining pages")
+                    url_pattern_detected = True
                 
                 # Try to find and click next button using JavaScript
                 try:
@@ -70,10 +79,30 @@ def fetch_with_playwright(url, automation_config):
                         debug_log.append(f"No next button found, stopping")
                         break
                     
-                    # Try JavaScript click (more reliable for Vue.js)
+                    # Check if button is disabled
+                    is_disabled = page.locator(next_sel).first.get_attribute("disabled")
+                    if is_disabled:
+                        debug_log.append(f"Next button is disabled, we've reached the last page")
+                        break
+                    
+                    # If URL pattern detected, try direct navigation
+                    if url_pattern_detected:
+                        # Extract page number and increment
+                        import re
+                        match = re.search(r'page=(\d+)', current_url)
+                        if match:
+                            next_page_num = int(match.group(1)) + 1
+                            next_url = re.sub(r'page=\d+', f'page={next_page_num}', current_url)
+                            debug_log.append(f"Navigating directly to: {next_url}")
+                            page.goto(next_url, wait_until="domcontentloaded")
+                            time.sleep(wait_time)
+                            debug_log.append(f"✓ Page {i+2} loaded via URL")
+                            continue
+                    
+                    # Otherwise, use JavaScript click
                     js_click_script = f"""
                     const button = document.querySelector('{next_sel}');
-                    if (button) {{
+                    if (button && !button.disabled) {{
                         button.click();
                         true;
                     }} else {{
@@ -97,8 +126,11 @@ def fetch_with_playwright(url, automation_config):
                     for wait_attempt in range(30):  # 30 seconds max
                         time.sleep(1)
                         new_html = page.content()
-                        if new_html != current_html:
+                        new_url = page.url
+                        if new_html != current_html or new_url != current_url:
                             debug_log.append(f"✓ Content changed after {wait_attempt+1}s")
+                            if new_url != current_url:
+                                debug_log.append(f"URL changed to: {new_url}")
                             content_changed = True
                             break
                     

@@ -73,6 +73,13 @@ def fetch_with_playwright(url, automation_config):
                 next_page_num = page_num + 1
                 debug_log.append(f"Looking for page {next_page_num} button...")
                 
+                # Monitor network requests to see if API is called
+                requests_made = []
+                def on_request(request):
+                    if "api" in request.url or "json" in request.url:
+                        requests_made.append(request.url)
+                page.on("request", on_request)
+                
                 try:
                     # Find button by text content  
                     button_selector = f"button.v-pagination__item:has-text('{next_page_num}')"
@@ -80,18 +87,50 @@ def fetch_with_playwright(url, automation_config):
                     
                     if button.count() > 0:
                         debug_log.append(f"✓ Found page {next_page_num} button")
-                        button.first.click(timeout=5000)
-                        debug_log.append(f"✓ Clicked page {next_page_num}")
-                        page_button_clicked = True
+                        
+                        # STRATEGY: Real Mouse Click (bypasses Vue.js trusted event checks)
+                        try:
+                            # 1. Scroll into view
+                            button.first.scroll_into_view_if_needed()
+                            time.sleep(0.5)
+                            
+                            # 2. Get coordinates
+                            box = button.first.bounding_box()
+                            if box:
+                                x = box["x"] + box["width"] / 2
+                                y = box["y"] + box["height"] / 2
+                                
+                                # 3. Move mouse and click
+                                debug_log.append(f"Moving mouse to {x},{y} and clicking...")
+                                page.mouse.move(x, y)
+                                time.sleep(0.2)
+                                page.mouse.down()
+                                time.sleep(0.1)
+                                page.mouse.up()
+                                debug_log.append(f"✓ Performed real mouse click")
+                                page_button_clicked = True
+                            else:
+                                debug_log.append(f"✗ Could not get bounding box, trying force click")
+                                button.first.click(force=True)
+                        except Exception as e:
+                            debug_log.append(f"Mouse click failed: {str(e)}")
+                            # Fallback
+                            button.first.click(force=True)
                     else:
-                        # Fallback: JavaScript
-                        debug_log.append(f"Trying JavaScript...")
+                        # Fallback: JavaScript with bubbles (more robust than standard click)
+                        debug_log.append(f"Trying JavaScript Event Dispatch...")
                         js_script = f"""
                         (() => {{
                             const buttons = document.querySelectorAll('.v-pagination__item');
                             for (let btn of buttons) {{
                                 if (btn.textContent.trim() === '{next_page_num}') {{
-                                    btn.click();
+                                    // Create trusted-like event
+                                    const event = new MouseEvent('click', {{
+                                        view: window,
+                                        bubbles: true,
+                                        cancelable: true
+                                    }});
+                                    btn.dispatchEvent(event);
                                     return true;
                                 }}
                             }}
@@ -100,7 +139,7 @@ def fetch_with_playwright(url, automation_config):
                         """
                         clicked = page.evaluate(js_script)
                         if clicked:
-                            debug_log.append(f"✓ JS clicked page {next_page_num}")
+                            debug_log.append(f"✓ JS dispatched click event")
                             page_button_clicked = True
                         else:
                             debug_log.append(f"✗ Could not find page {next_page_num}")
@@ -123,6 +162,16 @@ def fetch_with_playwright(url, automation_config):
                                 break
                         except:
                             pass
+                    
+                    # Log network activity
+                    if requests_made:
+                        debug_log.append(f"Network requests detected: {len(requests_made)}")
+                        debug_log.append(f"Last request: {requests_made[-1]}")
+                    else:
+                        debug_log.append(f"⚠ No API requests detected during wait")
+                    
+                    # Remove listener
+                    page.remove_listener("request", on_request)
                     
                     if not cards_updated:
                         debug_log.append(f"✗ Cards did not update")

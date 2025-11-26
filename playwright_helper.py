@@ -292,5 +292,6 @@ if __name__ == "__main__":
     except:
         automation_config = {"type": "single"}
     
-    result = fetch_with_playwright(url, automation_config)
+    # Pass None for use_proxy as it's not currently passed via CLI
+    result = run_playwright_automation(url, None, automation_config)
     print(json.dumps(result))

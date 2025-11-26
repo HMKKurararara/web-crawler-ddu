@@ -35,6 +35,18 @@ def fetch_with_playwright(url, automation_config):
             
             debug_log.append(f"Starting pagination: {next_sel}, max_pages: {max_pages}")
             
+            # CRITICAL: Wait for pagination controls to load first!
+            debug_log.append(f"Waiting for pagination controls to appear...")
+            try:
+                page.wait_for_selector(next_sel, state="visible", timeout=20000)
+                debug_log.append(f"✓ Pagination controls loaded")
+            except:
+                debug_log.append(f"✗ Pagination controls did not appear within 20s")
+                debug_log.append(f"This might mean the page has only 1 page, or wait_time needs to be longer")
+                # Still try to scrape the current page
+                html_pages.append(page.content())
+                return {"success": True, "html_pages": html_pages, "debug_log": debug_log}
+            
             for i in range(max_pages):
                 debug_log.append(f"=== Page {i+1}/{max_pages} ===")
                 

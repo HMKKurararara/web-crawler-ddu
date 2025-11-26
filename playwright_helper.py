@@ -87,14 +87,16 @@ def fetch_with_playwright(url, automation_config):
                         # Fallback: JavaScript
                         debug_log.append(f"Trying JavaScript...")
                         js_script = f"""
-                        const buttons = document.querySelectorAll('.v-pagination__item');
-                        for (let btn of buttons) {{
-                            if (btn.textContent.trim() === '{next_page_num}') {{
-                                btn.click();
-                                return true;
+                        (() => {{
+                            const buttons = document.querySelectorAll('.v-pagination__item');
+                            for (let btn of buttons) {{
+                                if (btn.textContent.trim() === '{next_page_num}') {{
+                                    btn.click();
+                                    return true;
+                                }}
                             }}
-                        }}
-                        return false;
+                            return false;
+                        }})()
                         """
                         clicked = page.evaluate(js_script)
                         if clicked:

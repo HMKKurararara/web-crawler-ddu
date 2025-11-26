@@ -33,25 +33,28 @@ def fetch_with_playwright(url, automation_config):
             next_sel = automation_config.get("next_selector")
             
             for i in range(max_pages):
-                html_pages.append(page.content())
+                # Capture current page content
+                current_html = page.content()
+                html_pages.append(current_html)
                 
                 # Check for next button
                 if page.locator(next_sel).count() > 0 and page.locator(next_sel).is_visible():
                     try:
-                        # Click and wait for navigation
+                        # Click the next button
                         page.click(next_sel)
                         
-                        # Smart wait: Wait for the page to update
-                        # We wait for the URL to change OR for a brief moment
-                        time.sleep(2)
+                        # Wait for content to change (critical for Vue.js SPAs)
+                        # We'll wait up to 20 seconds for the HTML to actually change
+                        max_wait = 20
+                        for wait_attempt in range(max_wait):
+                            time.sleep(1)
+                            new_html = page.content()
+                            if new_html != current_html:
+                                # Content has changed, good!
+                                break
                         
-                        # Then wait for content to load (longer for Vue.js apps)
-                        # Try to wait for body to be stable
-                        try:
-                            page.wait_for_load_state("networkidle", timeout=15000)
-                        except:
-                            # If networkidle times out, just wait fixed time
-                            time.sleep(wait_time)
+                        # Additional wait for rendering to complete
+                        time.sleep(wait_time)
                         
                     except Exception as e:
                         # If click fails, break

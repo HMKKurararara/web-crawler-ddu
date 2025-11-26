@@ -81,34 +81,79 @@ def fetch_with_playwright(url, automation_config):
                         debug_log.append(f"Next button disabled, last page reached")
                         break
                     
-                    # Get reference to first card element (to detect when it's removed)
+                    # Get reference to first card element
                     first_card_text = current_cards[0] if len(current_cards) > 0 else ""
-                    debug_log.append(f"Clicking Next button...")
+                    debug_log.append(f"Attempting to click Next button...")
                     
-                    # Click and wait for the first card to be removed from DOM
-                    page.click(next_sel, force=True)
-                    debug_log.append(f"✓ Clicked")
+                    # Try multiple click strategies
+                    next_button = page.locator(next_sel).first
                     
-                    # Wait for Vue.js to remove old cards and add new ones
+                    # Strategy 1: Scroll into view
+                    try:
+                        next_button.scroll_into_view_if_needed()
+                        debug_log.append(f"✓ Scrolled button into view")
+                        time.sleep(0.5)
+                    except:
+                        pass
+                    
+                    # Strategy 2: Try normal click first
+                    try:
+                        next_button.click(timeout=5000)
+                        debug_log.append(f"✓ Normal click succeeded")
+                    except:
+                        # Strategy 3: Force click
+                        try:
+                            next_button.click(force=True, timeout=5000)
+                            debug_log.append(f"✓ Force click succeeded")
+                        except:
+                            # Strategy 4: JavaScript click
+                            page.evaluate(f"document.querySelector('{next_sel}').click()")
+                            debug_log.append(f"✓ JavaScript click executed")
+                    
+                    # Check for loading indicator
+                    debug_log.append(f"Checking for loading indicators...")
+                    time.sleep(1)
+                    
+                    # Wait for cards to update
                     debug_log.append(f"Waiting for cards to update...")
                     cards_updated = False
                     
-                    for attempt in range(30):  # 30 second timeout
+                    for attempt in range(35):  # 35 second timeout
                         time.sleep(1)
                         try:
-                            # Check if cards changed by comparing text content
+                            # Check if cards changed
                             new_cards = page.locator('.card.entity').all_inner_texts()
-                            if len(new_cards) > 0 and new_cards[0] != first_card_text:
-                                debug_log.append(f"✓ Cards updated after {attempt+1}s!")
-                                debug_log.append(f"New first card: {new_cards[0][:60]}...")
-                                cards_updated = True
-                                break
-                        except:
-                            pass
+                            
+                            if len(new_cards) > 0:
+                                # Check if ANY card is different
+                                if new_cards[0] != first_card_text:
+                                    debug_log.append(f"✓ First card changed after {attempt+1}s!")
+                                    debug_log.append(f"Was: {first_card_text[:40]}...")
+                                    debug_log.append(f"Now: {new_cards[0][:40]}...")
+                                    cards_updated = True
+                                    break
+                                # Also check if the entire list is different
+                                elif new_cards != current_cards:
+                                    debug_log.append(f"✓ Card list changed after {attempt+1}s (different order/content)")
+                                    cards_updated = True
+                                    break
+                        except Exception as e:
+                            debug_log.append(f"Error checking cards at {attempt}s: {str(e)}")
                     
                     if not cards_updated:
-                        debug_log.append(f"✗ Cards did not update after 30s")
-                        debug_log.append(f"Likely reached last page or click failed")
+                        debug_log.append(f"✗ Cards did NOT update after 35s")
+                        debug_log.append(f"First card still shows: {first_card_text[:40] if first_card_text else 'N/A'}...")
+                        
+                        # One last check - maybe it's a timing issue
+                        try:
+                            final_cards = page.locator('.card.entity').all_inner_texts()
+                            debug_log.append(f"Final check: {len(final_cards)} cards found")
+                            if len(final_cards) > 0:
+                                debug_log.append(f"Final first card: {final_cards[0][:40]}...")
+                        except:
+                            pass
+                        
+                        debug_log.append(f"Stopping pagination - likely last page or Vue.js click handler not working")
                         break
                     
                     # Wait for full rendering
@@ -117,6 +162,8 @@ def fetch_with_playwright(url, automation_config):
                     
                 except Exception as e:
                     debug_log.append(f"✗ Error: {str(e)}")
+                    import traceback
+                    debug_log.append(f"Traceback: {traceback.format_exc()}")
                     break
             
             debug_log.append(f"=== Pagination complete: {len(html_pages)} pages scraped ===")

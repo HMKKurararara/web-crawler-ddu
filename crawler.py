@@ -57,7 +57,7 @@ def fetch_dynamic_content(url: str, automation: dict = None) -> list[str]:
     
     # Prepare automation config
     if automation is None:
-        automation = {"type": "single", "wait_time": 3}
+        automation = {"type": "single", "wait_time": 10}
     
     automation_json = json.dumps(automation)
     
@@ -571,7 +571,7 @@ def main():
         st.markdown("---")
         st.subheader("🤖 Automation")
         crawl_mode = st.selectbox("Crawl Mode", ["Single Page", "Pagination", "List-Detail"], help="Choose how to navigate the site.")
-        wait_time = st.slider("Page Load Delay (s)", min_value=1, max_value=15, value=3, help="Increase this if the site is slow or content is missing.")
+        wait_time = st.slider("Page Load Delay (s)", min_value=1, max_value=15, value=10, help="Increase this if the site is slow or content is missing.")
         
         automation_config = {"type": "single", "wait_time": wait_time}
         if crawl_mode == "Pagination":

@@ -21,7 +21,7 @@ def fetch_with_playwright(url, automation_config):
         page.goto(url, wait_until="domcontentloaded", timeout=30000)
         page.wait_for_selector("body", state="visible", timeout=10000)
         
-        wait_time = automation_config.get("wait_time", 3)
+        wait_time = automation_config.get("wait_time", 10)
         automation_type = automation_config.get("type", "single")
         
         if automation_type == "single":

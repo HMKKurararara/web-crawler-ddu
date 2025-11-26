@@ -571,7 +571,7 @@ def main():
         st.markdown("---")
         st.subheader("🤖 Automation")
         crawl_mode = st.selectbox("Crawl Mode", ["Single Page", "Pagination", "List-Detail"], help="Choose how to navigate the site.")
-        wait_time = st.slider("Page Load Delay (s)", min_value=1, max_value=15, value=10, help="Increase this if the site is slow or content is missing.")
+        wait_time = st.slider("Page Load Delay (s)", min_value=1, max_value=20, value=12, help="Increase this if the site is slow or content is missing.")
         
         automation_config = {"type": "single", "wait_time": wait_time}
         if crawl_mode == "Pagination":

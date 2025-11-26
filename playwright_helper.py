@@ -34,16 +34,30 @@ def fetch_with_playwright(url, automation_config):
             
             for i in range(max_pages):
                 html_pages.append(page.content())
+                
+                # Check for next button
                 if page.locator(next_sel).count() > 0 and page.locator(next_sel).is_visible():
                     try:
-                        with page.expect_navigation(timeout=5000):
-                            page.click(next_sel)
-                        time.sleep(wait_time)
-                    except:
+                        # Click and wait for navigation
+                        page.click(next_sel)
+                        
+                        # Smart wait: Wait for the page to update
+                        # We wait for the URL to change OR for a brief moment
+                        time.sleep(2)
+                        
+                        # Then wait for content to load (longer for Vue.js apps)
+                        # Try to wait for body to be stable
+                        try:
+                            page.wait_for_load_state("networkidle", timeout=15000)
+                        except:
+                            # If networkidle times out, just wait fixed time
+                            time.sleep(wait_time)
+                        
+                    except Exception as e:
+                        # If click fails, break
                         break
                 else:
-                    break
-                    
+                    break                
         elif automation_type == "list_detail":
             html_pages.append(page.content())
             detail_sel = automation_config.get("detail_selector")

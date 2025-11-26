@@ -830,6 +830,8 @@ def main():
                 st.success(f"Found {len(matching)} matching classes:")
                 for cls in matching[:20]:
                     st.write(f"- `.{cls}`")
+                    
+                st.info("💡 **Tip:** If `.card` doesn't work, try `a.card` or `.card.entity` for multi-class elements!")
             else:
                 st.warning(f"No classes found containing '{search_term}'")
 

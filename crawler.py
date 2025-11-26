@@ -49,6 +49,7 @@ def fetch_dynamic_content(url: str, automation: dict = None) -> list[str]:
     """
     import subprocess
     import os
+    import sys
     
     # Get path to helper script
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -61,9 +62,9 @@ def fetch_dynamic_content(url: str, automation: dict = None) -> list[str]:
     automation_json = json.dumps(automation)
     
     try:
-        # Run Playwright in subprocess
+        # Run Playwright in subprocess using the SAME Python interpreter
         result = subprocess.run(
-            ["python3", helper_path, url, automation_json],
+            [sys.executable, helper_path, url, automation_json],
             capture_output=True,
             text=True,
             timeout=120  # 2 minute timeout

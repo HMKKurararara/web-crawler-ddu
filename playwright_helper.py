@@ -35,124 +35,93 @@ def fetch_with_playwright(url, automation_config):
             
             debug_log.append(f"Starting pagination: {next_sel}, max_pages: {max_pages}")
             
-            # CRITICAL: Wait for pagination controls to load first!
+            # Wait for pagination controls to load first!
             debug_log.append(f"Waiting for pagination controls to appear...")
             try:
                 page.wait_for_selector(next_sel, state="visible", timeout=20000)
                 debug_log.append(f"✓ Pagination controls loaded")
             except:
                 debug_log.append(f"✗ Pagination controls did not appear within 20s")
-                debug_log.append(f"This might mean the page has only 1 page, or wait_time needs to be longer")
-                # Still try to scrape the current page
                 html_pages.append(page.content())
                 return {"success": True, "html_pages": html_pages, "debug_log": debug_log}
             
             for i in range(max_pages):
                 debug_log.append(f"=== Page {i+1}/{max_pages} ===")
                 
-                # Capture current page content and URL
+                # Capture current page
                 current_url = page.url
-                
-                # Get current data cards to compare (more reliable than full HTML)
-                try:
-                    current_cards = page.locator('.card.entity').all_inner_texts()
-                    debug_log.append(f"Found {len(current_cards)} data cards on page {i+1}")
-                    if len(current_cards) > 0:
-                        debug_log.append(f"First card text preview: {current_cards[0][:50]}...")
-                except:
-                    current_cards = []
-                
-                # Capture full HTML
                 current_html = page.content()
                 html_pages.append(current_html)
                 debug_log.append(f"Captured page {i+1}, HTML length: {len(current_html)}")
                 debug_log.append(f"Current URL: {current_url}")
                 
-                # Check if this is the last page
+                # Get current data for comparison
+                try:
+                    current_cards = page.locator('.card.entity').all_inner_texts()
+                    debug_log.append(f"Found {len(current_cards)} data cards")
+                    if len(current_cards) > 0:
+                        debug_log.append(f"First card: {current_cards[0][:60]}...")
+                except:
+                    current_cards = []
+                
+                # Check if last page
                 if i == max_pages - 1:
                     debug_log.append(f"Reached max_pages limit")
                     break
                 
-                # Try to find and click next button using JavaScript
+                # Check if button exists and is enabled
                 try:
-                    # Check if button exists
                     button_count = page.locator(next_sel).count()
-                    debug_log.append(f"Found {button_count} buttons matching '{next_sel}'")
-                    
                     if button_count == 0:
                         debug_log.append(f"No next button found, stopping")
                         break
                     
-                    # Check if button is disabled
                     is_disabled = page.locator(next_sel).first.get_attribute("disabled")
                     if is_disabled:
-                        debug_log.append(f"Next button is disabled, we've reached the last page")
+                        debug_log.append(f"Next button disabled, last page reached")
                         break
                     
-                    # Use JavaScript click
-                    js_click_script = f"""
-                    const button = document.querySelector('{next_sel}');
-                    if (button && !button.disabled) {{
-                        button.click();
-                        true;
-                    }} else {{
-                        false;
-                    }}
-                    """
+                    # THE KEY FIX: Wait for network response
+                    debug_log.append(f"Clicking next and waiting for network response...")
                     
-                    clicked = page.evaluate(js_click_script)
-                    debug_log.append(f"JavaScript click result: {clicked}")
+                    # Set up response listener BEFORE clicking
+                    with page.expect_response(lambda response: response.status == 200 and ("/api/" in response.url or "/directory/" in response.url), timeout=30000) as response_info:
+                        # Click the button
+                        page.click(next_sel, force=True)
+                        debug_log.append(f"✓ Clicked next button")
                     
-                    if not clicked:
-                        debug_log.append(f"Click failed, stopping")
-                        break
+                    # Response received
+                    response = response_info.value
+                    debug_log.append(f"✓ Got response from: {response.url}")
                     
-                    # Wait for DATA to change (not just HTML)
-                    debug_log.append(f"Waiting for data cards to change...")
-                    data_changed = False
+                    # Wait for Vue to process the response and re-render
+                    debug_log.append(f"Waiting for Vue.js to re-render...")
+                    time.sleep(3)  # Give Vue time to process
                     
-                    for wait_attempt in range(40):  # 40 seconds max
-                        time.sleep(1)
-                        try:
-                            new_cards = page.locator('.card.entity').all_inner_texts()
-                            # Compare the actual card data
-                            if new_cards != current_cards and len(new_cards) > 0:
-                                debug_log.append(f"✓ Data cards changed after {wait_attempt+1}s (was {len(current_cards)}, now {len(new_cards)} cards)")
-                                if len(new_cards) > 0:
-                                    debug_log.append(f"New first card preview: {new_cards[0][:50]}...")
-                                data_changed = True
-                                break
-                        except:
-                            pass  # Keep waiting
-                    
-                    if not data_changed:
-                        debug_log.append(f"✗ WARNING: Data did NOT change after 40s!")
-                        debug_log.append(f"Retrying with longer wait...")
-                        time.sleep(10)  # Extra 10s wait
-                        try:
-                            final_cards = page.locator('.card.entity').all_inner_texts()
-                            if final_cards != current_cards:
-                                debug_log.append(f"✓ Data changed after extended wait")
-                                data_changed = True
-                        except:
-                            pass
-                        
-                        if not data_changed:
-                            debug_log.append(f"Click likely failed or no more pages. Stopping.")
-                            break
+                    # Verify data actually changed
+                    try:
+                        new_cards = page.locator('.card.entity').all_inner_texts()
+                        if new_cards != current_cards and len(new_cards) > 0:
+                            debug_log.append(f"✓ Data changed! Now have {len(new_cards)} cards")
+                            if len(new_cards) > 0:
+                                debug_log.append(f"New first card: {new_cards[0][:60]}...")
+                        else:
+                            debug_log.append(f"⚠ Warning: Response received but data looks same")
+                            debug_log.append(f"This might be a duplicate or cache issue")
+                    except Exception as e:
+                        debug_log.append(f"Could not verify data change: {str(e)}")
                     
                     # Additional wait for full rendering
-                    debug_log.append(f"Waiting {wait_time}s for full rendering...")
                     time.sleep(wait_time)
                     debug_log.append(f"✓ Page {i+2} ready")
                     
                 except Exception as e:
-                    debug_log.append(f"✗ Error: {str(e)}")
+                    debug_log.append(f"✗ Error during navigation: {str(e)}")
+                    debug_log.append(f"This usually means no network response was received")
+                    debug_log.append(f"Possible reasons: no more pages, or response timeout")
                     break
             
             debug_log.append(f"=== Pagination complete: {len(html_pages)} pages scraped ===")
-            
-            # Return debug log in the result
             return {"success": True, "html_pages": html_pages, "debug_log": debug_log}                
         elif automation_type == "list_detail":
             html_pages.append(page.content())
